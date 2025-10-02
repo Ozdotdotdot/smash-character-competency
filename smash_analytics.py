@@ -13,8 +13,34 @@ with your API token and adjust weights/logic as needed.
 
 import os
 import requests
-import pandas as pd
 from typing import List, Dict, Any, Optional
+
+
+_character_cache: Dict[int, Dict[str, str]] = {}
+
+
+def get_character_map(videogame_id: int) -> Dict[str, str]:
+    """Return a mapping from character id to name for a given game."""
+    if videogame_id in _character_cache:
+        return _character_cache[videogame_id]
+
+    query = """
+    query($id: ID!) {
+      videogame(id: $id) {
+        characters {
+          id
+          name
+        }
+      }
+    }
+    """
+    data = _post_graphql(query, {"id": videogame_id})
+    characters = data["videogame"].get("characters") or []
+    if isinstance(characters, dict) and "nodes" in characters:
+        characters = characters["nodes"]
+    lookup = {str(c["id"]): c["name"] for c in characters if c.get("id") and c.get("name")}
+    _character_cache[videogame_id] = lookup
+    return lookup
 
 
 # =====================
@@ -75,8 +101,8 @@ def get_tournaments_by_state(state: str, videogame_id: int = 1386, per_page: int
     return _post_graphql(query, {"perPage": per_page, "videogameId": videogame_id, "state": state})["tournaments"]["nodes"]
 
 
-def get_event_ids_for_tournament(tournament_id: int) -> List[int]:
-    """Fetch event IDs for a tournament."""
+def get_events_for_tournament(tournament_id: int) -> List[dict]:
+    """Fetch event payloads for a tournament."""
     query = """
     query($id: ID!) {
       tournament(id: $id) {
@@ -88,7 +114,13 @@ def get_event_ids_for_tournament(tournament_id: int) -> List[int]:
     }
     """
     data = _post_graphql(query, {"id": tournament_id})
-    return [e["id"] for e in data["tournament"]["events"]]
+    events = data.get("tournament", {}).get("events") or []
+    return events
+
+
+def get_event_ids_for_tournament(tournament_id: int) -> List[int]:
+    """Convenience wrapper returning only the event ids for a tournament."""
+    return [e.get("id") for e in get_events_for_tournament(tournament_id) if e.get("id")]
 
 
 def get_event_entrants(event_id: int, per_page: int = 25) -> List[dict]:
@@ -175,63 +207,78 @@ def get_player_sets(player_id: int, per_page: int = 10) -> List[dict]:
 # Analytics Helpers
 # =====================
 
-def compute_win_rate(sets: List[dict], player_id: int) -> float:
-    """Compute win rate from a list of sets."""
-    if not sets:
-        return 0.0
-    wins = sum(1 for s in sets if s.get("winnerId") == player_id)
-    return wins / len(sets)
+def fetch_state_tournaments(
+    state: str,
+    videogame_id: int = 1386,
+    per_page_tournaments: int = 3,
+    per_page_entrants: int = 10,
+) -> List[Dict[str, Any]]:
+    """Return tournaments with nested events and entrant payloads for a state."""
+    tournaments = get_tournaments_by_state(
+        state,
+        videogame_id=videogame_id,
+        per_page=per_page_tournaments,
+    )
+    results: List[Dict[str, Any]] = []
+    for tournament in tournaments:
+        events = []
+        for event in get_events_for_tournament(tournament.get("id")):
+            event_id = event.get("id")
+            entrants = get_event_entrants(event_id, per_page=per_page_entrants) if event_id else []
+            events.append({
+                "event": event,
+                "entrants": entrants,
+            })
+        results.append({
+            "tournament": tournament,
+            "events": events,
+        })
+    return results
 
 
-def extract_main_character(sets: List[dict], player_id: int) -> Optional[str]:
-    """Find the most commonly played character by this player across games."""
-    char_counts = {}
-    for s in sets:
-        for g in s.get("games", []) or []:
-            for sel in g.get("selections", []) or []:
-                if sel["entrant"] and any(p["player"]["id"] == player_id for p in sel["entrant"].get("participants", [])):
-                    char = sel["character"]["name"] if sel["character"] else None
-                    if char:
-                        char_counts[char] = char_counts.get(char, 0) + 1
-    if not char_counts:
-        return None
-    return max(char_counts, key=char_counts.get)
-
-
-def generate_character_report(state: str, character: str, videogame_id: int = 1386) -> pd.DataFrame:
-    """
-    Generate a DataFrame of players in a given state who main a given character.
-    Includes gamerTag, win rate, and # of sets analyzed.
-    """
-    tournaments = get_tournaments_by_state(state, videogame_id=videogame_id, per_page=3)
-    rows = []
-    for t in tournaments:
-        event_ids = get_event_ids_for_tournament(t["id"])
-        for e_id in event_ids:
-            entrants = get_event_entrants(e_id, per_page=10)
-            for entrant in entrants:
-                for part in entrant["participants"]:
-                    p = part["player"]
-                    if not p:
+def fetch_state_player_records(
+    state: str,
+    videogame_id: int = 1386,
+    per_page_tournaments: int = 3,
+    per_page_entrants: int = 10,
+    per_page_sets: int = 10,
+) -> List[Dict[str, Any]]:
+    """Return a list of player-centric records with raw set payloads."""
+    tournaments = fetch_state_tournaments(
+        state,
+        videogame_id=videogame_id,
+        per_page_tournaments=per_page_tournaments,
+        per_page_entrants=per_page_entrants,
+    )
+    records: List[Dict[str, Any]] = []
+    for tournament_entry in tournaments:
+        tournament = tournament_entry.get("tournament") or {}
+        for event_entry in tournament_entry.get("events", []):
+            event = event_entry.get("event") or {}
+            for entrant in event_entry.get("entrants", []) or []:
+                for participant in (entrant.get("participants") or []):
+                    player = participant.get("player")
+                    if not player or not player.get("id"):
                         continue
-                    sets = get_player_sets(p["id"], per_page=10)
-                    win_rate = compute_win_rate(sets, p["id"])
-                    main_char = extract_main_character(sets, p["id"])
-                    if main_char == character:
-                        rows.append({
-                            "Player": p["gamerTag"],
-                            "Region": p["user"]["location"]["state"] if p["user"] and p["user"]["location"] else None,
-                            "Main": main_char,
-                            "WinRate": win_rate,
-                            "SetsAnalyzed": len(sets),
-                        })
-    return pd.DataFrame(rows)
+                    sets = get_player_sets(player["id"], per_page=per_page_sets)
+                    records.append({
+                        "tournament": tournament,
+                        "event": event,
+                        "entrant": entrant,
+                        "player": player,
+                        "sets": sets,
+                    })
+    return records
 
 
-if __name__ == "__main__":
-    # Example usage (will only work with a valid API token!)
-    try:
-        df = generate_character_report("GA", "Marth")
-        print(df)
-    except Exception as e:
-        print("Error:", e)
+__all__ = [
+    "API_URL",
+    "get_character_map",
+    "get_tournaments_by_state",
+    "get_events_for_tournament",
+    "get_event_ids_for_tournament",
+    "get_event_entrants",
+    "get_player_sets",
+    "fetch_state_tournaments",
+    "fetch_state_player_records",
+]
