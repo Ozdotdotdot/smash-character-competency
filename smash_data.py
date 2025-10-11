@@ -22,9 +22,17 @@ EVENT_FIELDS = """
     slug
     startAt
     numEntrants
-    teamRosterSize
+    teamRosterSize {
+      minPlayers
+      maxPlayers
+    }
     entrantSizeMin
     entrantSizeMax
+    phases {
+      id
+      name
+      phaseOrder
+    }
     videogame {
       id
       name
@@ -142,7 +150,7 @@ def _paginate_event_field(
     return results
 
 
-def fetch_event_seeds(client: StartGGClient, event_id: int, per_page: int = 100) -> List[Dict]:
+def fetch_event_seeds(client: StartGGClient, event_id: int, per_page: int = 50) -> List[Dict]:
     """Return all seeds for an event with entrant + participant metadata."""
     field_fragment = f"""
     seeds(query: {{ page: $page, perPage: $perPage }}) {{
@@ -163,7 +171,7 @@ def fetch_event_seeds(client: StartGGClient, event_id: int, per_page: int = 100)
     return _paginate_event_field(client, event_id, field_fragment, per_page=per_page)
 
 
-def fetch_event_standings(client: StartGGClient, event_id: int, per_page: int = 100) -> List[Dict]:
+def fetch_event_standings(client: StartGGClient, event_id: int, per_page: int = 50) -> List[Dict]:
     """Return final standings for an event."""
     field_fragment = """
     standings(query: { page: $page, perPage: $perPage }) {
@@ -181,7 +189,7 @@ def fetch_event_standings(client: StartGGClient, event_id: int, per_page: int = 
     return _paginate_event_field(client, event_id, field_fragment, per_page=per_page)
 
 
-def fetch_event_sets(client: StartGGClient, event_id: int, per_page: int = 25) -> List[Dict]:
+def fetch_event_sets(client: StartGGClient, event_id: int, per_page: int = 15) -> List[Dict]:
     """Return all sets for an event, including per-game character data."""
     field_fragment = f"""
     sets(
@@ -236,6 +244,52 @@ def fetch_event_sets(client: StartGGClient, event_id: int, per_page: int = 25) -
     return _paginate_event_field(client, event_id, field_fragment, per_page=per_page)
 
 
+def fetch_phase_seeds(client: StartGGClient, phase_id: int, per_page: int = 50) -> List[Dict]:
+    """Return seeds for a specific phase."""
+    query = """
+    query PhaseSeeds($phaseId: ID!, $page: Int!, $perPage: Int!) {
+      phase(id: $phaseId) {
+        seeds(query: { page: $page, perPage: $perPage }) {
+          pageInfo { totalPages total }
+          nodes {
+            id
+            seedNum
+            entrant {
+              id
+              name
+              participants {
+                %s
+              }
+            }
+          }
+        }
+      }
+    }
+    """ % PARTICIPANT_FIELDS
+
+    results: List[Dict] = []
+    page = 1
+    total_pages: Optional[int] = None
+
+    while True:
+        payload = client.execute(
+            query,
+            {"phaseId": phase_id, "page": page, "perPage": per_page},
+        )
+        phase = payload.get("phase") or {}
+        seeds_container = phase.get("seeds") or {}
+        nodes: Iterable[Dict] = seeds_container.get("nodes") or []
+        results.extend(nodes)
+
+        page_info = seeds_container.get("pageInfo") or {}
+        total_pages = total_pages or page_info.get("totalPages") or 1
+        if page >= total_pages:
+            break
+        page += 1
+
+    return results
+
+
 @dataclass
 class EventBundle:
     """Convenience container bundling event-level payloads together."""
@@ -249,7 +303,14 @@ class EventBundle:
 def collect_event_bundle(client: StartGGClient, event: Dict) -> EventBundle:
     """Gather seeds, standings, and sets for the provided event."""
     event_id = int(event["id"])
-    seeds = fetch_event_seeds(client, event_id)
+    seeds: List[Dict] = []
+    # Combine seeds across phases (usually there's at least a pools & finals phase)
+    for phase in event.get("phases", []) or []:
+        phase_id = phase.get("id")
+        if not phase_id:
+            continue
+        phase_seeds = fetch_phase_seeds(client, int(phase_id))
+        seeds.extend(phase_seeds)
     standings = fetch_event_standings(client, event_id)
     sets = fetch_event_sets(client, event_id)
     return EventBundle(event=event, seeds=seeds, standings=standings, sets=sets)
@@ -466,12 +527,19 @@ def is_singles_event(event: Dict) -> bool:
     """Determine whether an event is singles based on roster size metadata."""
     entrant_min = event.get("entrantSizeMin")
     entrant_max = event.get("entrantSizeMax")
-    team_size = event.get("teamRosterSize")
+    team_roster = event.get("teamRosterSize")
+    if isinstance(team_roster, dict):
+        min_players = team_roster.get("minPlayers")
+        max_players = team_roster.get("maxPlayers")
+        if min_players and min_players != 1:
+            return False
+        if max_players and max_players != 1:
+            return False
+    elif team_roster and team_roster != 1:
+        return False
     if entrant_min is not None and entrant_min != 1:
         return False
     if entrant_max is not None and entrant_max != 1:
-        return False
-    if team_size and team_size != 1:
         return False
     return True
 
