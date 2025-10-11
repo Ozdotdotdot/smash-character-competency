@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+~#!/usr/bin/env python3
 """Small CLI to run generate_character_report with a real API token.
 
 Set STARTGG_API_TOKEN in your environment before running. This script will
