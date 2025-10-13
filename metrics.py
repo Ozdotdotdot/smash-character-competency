@@ -83,6 +83,7 @@ def _location_state(result: PlayerEventResult) -> Optional[str]:
 def compute_player_metrics(
     player_results: Iterable[PlayerEventResult],
     target_character: str = "Marth",
+    assume_target_main: bool = False,
 ) -> pd.DataFrame:
     """Aggregate metrics for plotting from raw player event results."""
     aggregates: Dict[int, PlayerAggregate] = {}
@@ -157,6 +158,7 @@ def compute_player_metrics(
             else None
         )
 
+        character_sets = agg.character_sets
         character_win_rate = (
             agg.character_wins / agg.character_sets if agg.character_sets else None
         )
@@ -168,6 +170,16 @@ def compute_player_metrics(
         character_usage_rate = (
             agg.character_sets / agg.sets_played if agg.sets_played else 0
         )
+
+        if (
+            assume_target_main
+            and character_sets == 0
+            and agg.sets_played > 0
+        ):
+            character_sets = agg.sets_played
+            character_win_rate = win_rate
+            character_weighted_win_rate = weighted_win_rate
+            character_usage_rate = 1.0
 
         upset_rate = (
             agg.wins_vs_higher_seed / agg.sets_vs_higher_seed
@@ -188,7 +200,7 @@ def compute_player_metrics(
                 "weighted_win_rate": weighted_win_rate,
                 "avg_seed_delta": avg_seed_delta,
                 "opponent_strength": opponent_strength,
-                "character_sets": agg.character_sets,
+                "character_sets": character_sets,
                 "character_win_rate": character_win_rate,
                 "character_weighted_win_rate": character_weighted_win_rate,
                 "character_usage_rate": character_usage_rate,

@@ -19,6 +19,7 @@ def generate_player_metrics(
     videogame_id: int = 1386,
     target_character: str = "Marth",
     use_cache: bool = True,
+    assume_target_main: bool = False,
 ) -> pd.DataFrame:
     """
     Run the full data pipeline and return a DataFrame with per-player metrics.
@@ -44,7 +45,11 @@ def generate_player_metrics(
     )
     tournaments = fetch_recent_tournaments(client, filt)
     player_results = collect_player_results_for_tournaments(client, tournaments)
-    return compute_player_metrics(player_results, target_character=target_character)
+    return compute_player_metrics(
+        player_results,
+        target_character=target_character,
+        assume_target_main=assume_target_main,
+    )
 
 
 def generate_character_report(
@@ -53,6 +58,7 @@ def generate_character_report(
     months_back: int = 6,
     videogame_id: int = 1386,
     use_cache: bool = True,
+    assume_target_main: bool = False,
 ) -> pd.DataFrame:
     """
     Backwards-compatible wrapper that filters the metrics DataFrame to players
@@ -64,6 +70,7 @@ def generate_character_report(
         videogame_id=videogame_id,
         target_character=character or "Marth",
         use_cache=use_cache,
+        assume_target_main=assume_target_main,
     )
     if df.empty or character is None:
         return df

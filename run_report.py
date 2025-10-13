@@ -29,6 +29,15 @@ def main() -> None:
         default=6,
         help="Rolling window in months (default: 6)",
     )
+    parser.add_argument(
+        "--output",
+        help="Optional path to write the full metrics as a CSV instead of printing the table.",
+    )
+    parser.add_argument(
+        "--assume-target-main",
+        action="store_true",
+        help="If set, treat the target character as a player's main when no character data is reported.",
+    )
     args = parser.parse_args()
 
     if not os.getenv("STARTGG_API_TOKEN"):
@@ -41,22 +50,28 @@ def main() -> None:
             months_back=args.months_back,
             videogame_id=args.videogame_id,
             target_character=args.character,
+            assume_target_main=args.assume_target_main,
         )
         if df.empty:
             print("No players found in the requested window.")
+            return
+
+        if args.output:
+            df.to_csv(args.output, index=False)
+            print(f"Wrote {len(df)} rows to {args.output}")
             return
 
         display_cols = [
             "gamer_tag",
             "state",
             "events_played",
-        "sets_played",
-        "win_rate",
-        "weighted_win_rate",
-        "avg_seed_delta",
-        "opponent_strength",
-        "character_usage_rate",
-    ]
+            "sets_played",
+            "win_rate",
+            "weighted_win_rate",
+            "avg_seed_delta",
+            "opponent_strength",
+            "character_usage_rate",
+        ]
         available_cols = [c for c in display_cols if c in df.columns]
         print(df[available_cols].to_string(index=False))
     except Exception as exc:

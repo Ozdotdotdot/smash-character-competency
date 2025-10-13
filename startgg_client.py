@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, Optional
 
+import time
 import requests
 
 STARTGG_API_URL = "https://api.start.gg/gql/alpha"
@@ -90,9 +91,25 @@ class StartGGClient:
             "Content-Type": "application/json",
         }
         payload = {"query": query, "variables": variables or {}}
-        response = self.session.post(self.api_url, json=payload, headers=headers, timeout=30)
-        response.raise_for_status()
-        data = response.json()
+        attempt = 0
+        max_attempts = 5
+
+        while True:
+            response = self.session.post(self.api_url, json=payload, headers=headers, timeout=30)
+
+            if response.status_code == 429 and attempt < max_attempts:
+                retry_after = response.headers.get("Retry-After")
+                try:
+                    wait_seconds = float(retry_after)
+                except (TypeError, ValueError):
+                    wait_seconds = min(60, 2 ** attempt)
+                time.sleep(wait_seconds)
+                attempt += 1
+                continue
+
+            response.raise_for_status()
+            data = response.json()
+            break
 
         if "errors" in data:
             raise RuntimeError(f"GraphQL error: {data['errors']}")
