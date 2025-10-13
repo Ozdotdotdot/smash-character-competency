@@ -43,11 +43,13 @@ class PlayerAggregate:
     character_weight_sum: float = 0.0
     latest_event_start: int = 0
     event_sizes: List[int] = None
+    event_state_counts: Dict[str, int] = None
 
     def __post_init__(self) -> None:
         self.seed_deltas = self.seed_deltas or []
         self.opponent_strength_values = self.opponent_strength_values or []
         self.event_sizes = self.event_sizes or []
+        self.event_state_counts = self.event_state_counts or {}
 
 
 def _event_weight(event: Dict, now_ts: int) -> float:
@@ -80,6 +82,13 @@ def _uses_target_character(set_record: SetRecord, target_character: str) -> bool
 def _location_state(result: PlayerEventResult) -> Optional[str]:
     location = result.location or {}
     return location.get("state")
+
+
+def _normalize_state(state: Optional[str]) -> Optional[str]:
+    if not state:
+        return None
+    state = str(state).strip().upper()
+    return state or None
 
 
 def compute_player_metrics(
@@ -117,6 +126,12 @@ def compute_player_metrics(
         event_size = result.event.get("numEntrants")
         if event_size:
             agg.event_sizes.append(int(event_size))
+        tournament_state = (result.tournament or {}).get("addrState")
+        if tournament_state:
+            state_key = _normalize_state(tournament_state)
+            if not state_key:
+                state_key = "UNKNOWN"
+            agg.event_state_counts[state_key] = agg.event_state_counts.get(state_key, 0) + 1
 
         for set_record in result.sets:
             if set_record.won is None:
@@ -166,6 +181,26 @@ def compute_player_metrics(
             mean(agg.event_sizes) if agg.event_sizes else None
         )
         max_event_entrants = max(agg.event_sizes) if agg.event_sizes else None
+        total_state_events = sum(agg.event_state_counts.values())
+        inferred_state = None
+        inferred_state_confidence = None
+        if total_state_events:
+            top_state, top_count = max(
+                agg.event_state_counts.items(),
+                key=lambda item: item[1],
+            )
+            if top_state != "UNKNOWN":
+                confidence = top_count / total_state_events
+                if confidence > 0.5:
+                    inferred_state = top_state
+                    inferred_state_confidence = confidence
+
+        explicit_state = _normalize_state(agg.state)
+        home_state = explicit_state or inferred_state
+        home_state_inferred = explicit_state is None and inferred_state is not None
+        home_state_confidence = (
+            inferred_state_confidence if home_state_inferred else 1.0 if explicit_state else None
+        )
 
         character_sets = agg.character_sets
         character_win_rate = (
@@ -202,7 +237,7 @@ def compute_player_metrics(
             {
                 "player_id": agg.player_id,
                 "gamer_tag": agg.gamer_tag,
-                "state": agg.state,
+                "state": explicit_state,
                 "events_played": agg.events_played,
                 "sets_played": agg.sets_played,
                 "win_rate": win_rate,
@@ -219,6 +254,12 @@ def compute_player_metrics(
                 "latest_event_start": agg.latest_event_start,
                 "avg_event_entrants": avg_event_entrants,
                 "max_event_entrants": max_event_entrants,
+                "events_with_known_state": total_state_events,
+                "inferred_state": inferred_state,
+                "inferred_state_confidence": inferred_state_confidence,
+                "home_state": home_state,
+                "home_state_inferred": home_state_inferred,
+                "home_state_confidence": home_state_confidence,
             }
         )
 

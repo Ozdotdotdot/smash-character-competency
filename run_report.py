@@ -78,8 +78,9 @@ def main() -> None:
 
         if args.filter_state:
             allowed = {s.upper() for s in args.filter_state}
-            state_series = df["state"].fillna("Unknown").str.upper()
-            df = df[state_series.isin(allowed)]
+            state_series = df["home_state"].fillna("").str.upper()
+            mask = state_series.isin(allowed)
+            df = df[mask]
 
         if args.min_entrants is not None and "avg_event_entrants" in df.columns:
             df = df[df["avg_event_entrants"].fillna(0) >= args.min_entrants]
@@ -108,6 +109,8 @@ def main() -> None:
         display_cols = [
             "gamer_tag",
             "state",
+            "home_state",
+            "home_state_inferred",
             "events_played",
             "sets_played",
             "avg_event_entrants",

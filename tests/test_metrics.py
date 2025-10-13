@@ -94,7 +94,12 @@ def test_compute_player_metrics_single_player():
     assert math.isclose(row["avg_seed_delta"], 2.0)
     assert row["events_played"] == 1
     assert row["sets_played"] == 2
+    assert row["avg_event_entrants"] == 32
+    assert row["max_event_entrants"] == 32
     assert row["character_sets"] == 2
     assert math.isclose(row["character_win_rate"], 0.5)
     assert math.isclose(row["character_usage_rate"], 1.0)
     assert math.isclose(row["upset_rate"], 1.0)
+    assert row["events_with_known_state"] == 1
+    assert row["inferred_state"] == "GA"
+    assert math.isclose(row["inferred_state_confidence"], 1.0)
