@@ -42,10 +42,12 @@ class PlayerAggregate:
     character_weighted_wins: float = 0.0
     character_weight_sum: float = 0.0
     latest_event_start: int = 0
+    event_sizes: List[int] = None
 
     def __post_init__(self) -> None:
         self.seed_deltas = self.seed_deltas or []
         self.opponent_strength_values = self.opponent_strength_values or []
+        self.event_sizes = self.event_sizes or []
 
 
 def _event_weight(event: Dict, now_ts: int) -> float:
@@ -112,6 +114,9 @@ def compute_player_metrics(
         event_start = result.event.get("startAt")
         if event_start and event_start > agg.latest_event_start:
             agg.latest_event_start = event_start
+        event_size = result.event.get("numEntrants")
+        if event_size:
+            agg.event_sizes.append(int(event_size))
 
         for set_record in result.sets:
             if set_record.won is None:
@@ -157,6 +162,10 @@ def compute_player_metrics(
             if agg.opponent_strength_values
             else None
         )
+        avg_event_entrants = (
+            mean(agg.event_sizes) if agg.event_sizes else None
+        )
+        max_event_entrants = max(agg.event_sizes) if agg.event_sizes else None
 
         character_sets = agg.character_sets
         character_win_rate = (
@@ -208,6 +217,8 @@ def compute_player_metrics(
                 "activity_score": activity_score,
                 "tournaments_played": len(agg.tournaments),
                 "latest_event_start": agg.latest_event_start,
+                "avg_event_entrants": avg_event_entrants,
+                "max_event_entrants": max_event_entrants,
             }
         )
 
