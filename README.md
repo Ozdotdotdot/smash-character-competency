@@ -74,7 +74,7 @@ I may move this section to its own documentation if I add more functionality.
 ## Working with the metrics elsewhere
 
 - Import `generate_player_metrics` or `generate_character_report` directly to consume DataFrames in notebooks or other scripts.
-- Visualizations live in `Visualizer.ipynb`; feel free to generate new plots under `analysis/` and link them here.
+- Visualizations now ship with a Voilà-ready dashboard under `Visualizer.ipynb`. Launch it with `voila Visualizer.ipynb --port 8866` to expose controls for game/state/month filters, the same min/max entrants + start-after gates as the CLI, axis dropdowns (swap between weighted win rate, opponent strength, seed delta, upset rate, etc.), and a fetch button with an inline spinner while start.gg calls run. The notebook talks straight to the `smashcc` pipeline, so code changes propagate immediately.
 - Cached API payloads live under `.cache/startgg`. Delete specific files if you need to bust the cache for a tournament.
 
 ## Development tips
@@ -82,3 +82,9 @@ I may move this section to its own documentation if I add more functionality.
 - Respect start.gg rate limits; the built-in caching is there to keep repeated runs fast.
 - When adding metrics, extend `PlayerAggregate` in `metrics.py` and update the column selection in `run_report.py`.
 - If you change GraphQL shapes, update the integration tests under `tests/` to keep the mocked payloads in sync.
+
+## Deployment notes
+
+- For quick sharing, run the FastAPI service with `uvicorn smashcc.api:app --host 0.0.0.0 --port 8000` and front it with Voilà (`voila Visualizer.ipynb`) plus a Cloudflare Tunnel.
+- On the Switch, verify the app in a virtual environment before exposing it: copy the repo, install from `requirements.txt`, set `STARTGG_API_TOKEN`, smoke test the CLI and API locally, then wire up the tunnel.
+- Dockerizing is optional for the first iteration; ship a native install to gather feedback, then containerize once the API/notebook stabilize so future updates are reproducible.
