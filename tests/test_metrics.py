@@ -1,7 +1,6 @@
 import math
 
-from metrics import compute_player_metrics
-from smash_data import PlayerEventResult, SetRecord
+from smashcc import PlayerEventResult, SetRecord, compute_player_metrics
 
 
 def _base_event():

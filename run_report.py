@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-import smash_analysis as analysis
+from smashcc import analysis
 
 
 def main() -> None:
