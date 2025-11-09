@@ -1,4 +1,4 @@
-#!/home/ozworkbook/smash-character-competency/.venv/bin/python
+#!/home/ozworkbook/code-repos/smashDA/.venv/bin/python
 # -*- coding: utf-8 -*-
 import re
 import sys
