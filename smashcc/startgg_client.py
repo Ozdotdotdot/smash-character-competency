@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, Optional
 
+import shutil
 import time
 import requests
 
@@ -63,6 +64,8 @@ class StartGGClient:
         api_url: str = STARTGG_API_URL,
         cache_dir: Optional[Path] = None,
         use_cache: bool = True,
+        stale_after_days: Optional[int] = 7,
+        archive_stale: bool = True,
     ) -> None:
         self._token = token or os.getenv("STARTGG_API_TOKEN")
         if not self._token:
@@ -73,18 +76,27 @@ class StartGGClient:
         self.api_url = api_url
         self.cache_dir = cache_dir or _default_cache_dir()
         self.use_cache = use_cache
+        self.archive_stale = archive_stale
+        self.stale_after = (
+            timedelta(days=stale_after_days) if stale_after_days is not None else None
+        )
+        self.archive_dir = self.cache_dir / "archive"
         self.session = requests.Session()
         if self.use_cache:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
+            if self.archive_stale:
+                self.archive_dir.mkdir(parents=True, exist_ok=True)
 
     def execute(self, query: str, variables: Optional[Dict] = None) -> Dict:
         """Execute a GraphQL request, hitting the cache first when enabled."""
         cache_key = _make_cache_key(query, variables)
         cache_path = self.cache_dir / f"{cache_key}.json"
-
+        cache_stale = False
         if self.use_cache and cache_path.exists():
-            with cache_path.open("r", encoding="utf-8") as fp:
-                return json.load(fp)
+            cache_stale = self._cache_is_stale(cache_path)
+            if not cache_stale:
+                with cache_path.open("r", encoding="utf-8") as fp:
+                    return json.load(fp)
 
         headers = {
             "Authorization": f"Bearer {self._token}",
@@ -115,6 +127,8 @@ class StartGGClient:
             raise RuntimeError(f"GraphQL error: {data['errors']}")
 
         if self.use_cache:
+            if cache_stale and self.archive_stale:
+                self._archive_cache_file(cache_path)
             with cache_path.open("w", encoding="utf-8") as fp:
                 json.dump(data["data"], fp)
 
@@ -184,3 +198,20 @@ class StartGGClient:
                 break
 
             page += 1
+
+    def _cache_is_stale(self, cache_path: Path) -> bool:
+        """Check whether a cached payload should be refreshed."""
+        if self.stale_after is None:
+            return False
+        mtime = datetime.fromtimestamp(cache_path.stat().st_mtime, tz=timezone.utc)
+        age = datetime.now(timezone.utc) - mtime
+        return age >= self.stale_after
+
+    def _archive_cache_file(self, cache_path: Path) -> None:
+        """Keep the previous payload in an archive before refreshing."""
+        if not cache_path.exists():
+            return
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+        archive_name = f"{cache_path.stem}-{timestamp}{cache_path.suffix}"
+        target = self.archive_dir / archive_name
+        shutil.copy2(cache_path, target)

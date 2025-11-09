@@ -75,7 +75,8 @@ I may move this section to its own documentation if I add more functionality.
 
 - Import `generate_player_metrics` or `generate_character_report` directly to consume DataFrames in notebooks or other scripts.
 - Visualizations now ship with a Voilà-ready dashboard under `Visualizer.ipynb`. Launch it with `voila Visualizer.ipynb --port 8866` to expose controls for game/state/month filters, the same min/max entrants + start-after gates as the CLI, axis dropdowns (swap between weighted win rate, opponent strength, seed delta, upset rate, etc.), and a fetch button with an inline spinner while start.gg calls run. The notebook talks straight to the `smashcc` pipeline, so code changes propagate immediately.
-- Cached API payloads live under `.cache/startgg`. Delete specific files if you need to bust the cache for a tournament.
+- Cached API payloads live under `.cache/startgg`. Entries refresh automatically when they are older than seven days, and the previous payload is copied to `.cache/startgg/archive` so you can keep a historical record while still getting fresh data for weekly events.
+- The first run now hydrates a SQLite database at `.cache/startgg/smash.db` that stores tournaments, events, and per-event payloads. Follow-up runs read straight from the database (and only re-sync from start.gg once a week or when the date window expands), so you can explore older tournaments offline. Delete the file if you ever want to rebuild it from scratch, or pass `use_store=False` to `generate_player_metrics` for ephemeral environments.
 
 ## Development tips
 

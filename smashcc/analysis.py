@@ -1,9 +1,11 @@
 """High-level analytics entry points built on top of the start.gg helpers."""
 
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 
+from .datastore import SQLiteStore
 from .metrics import compute_player_metrics
 from .smash_data import (
     TournamentFilter,
@@ -20,6 +22,8 @@ def generate_player_metrics(
     target_character: str = "Marth",
     use_cache: bool = True,
     assume_target_main: bool = False,
+    use_store: bool = True,
+    store_path: Optional[Path] = None,
 ) -> pd.DataFrame:
     """
     Run the full data pipeline and return a DataFrame with per-player metrics.
@@ -36,19 +40,28 @@ def generate_player_metrics(
         Character name to derive character-specific metrics (default "Marth").
     use_cache:
         Whether to persist GraphQL responses locally to avoid redundant calls.
+    use_store:
+        When True, persist tournaments/events inside a SQLite database so follow-up
+        runs can be served offline. Disable for ephemeral environments.
     """
     client = StartGGClient(use_cache=use_cache)
+    store: Optional[SQLiteStore] = SQLiteStore(store_path) if use_store else None
     filt = TournamentFilter(
         state=state,
         videogame_id=videogame_id,
         months_back=months_back,
     )
-    tournaments = fetch_recent_tournaments(client, filt)
-    player_results = collect_player_results_for_tournaments(
-        client,
-        tournaments,
-        target_videogame_id=videogame_id,
-    )
+    try:
+        tournaments = fetch_recent_tournaments(client, filt, store=store)
+        player_results = collect_player_results_for_tournaments(
+            client,
+            tournaments,
+            target_videogame_id=videogame_id,
+            store=store,
+        )
+    finally:
+        if store is not None:
+            store.close()
     return compute_player_metrics(
         player_results,
         target_character=target_character,
@@ -63,6 +76,8 @@ def generate_character_report(
     videogame_id: int = 1386,
     use_cache: bool = True,
     assume_target_main: bool = False,
+    use_store: bool = True,
+    store_path: Optional[Path] = None,
 ) -> pd.DataFrame:
     """
     Backwards-compatible wrapper that filters the metrics DataFrame to players
@@ -75,6 +90,8 @@ def generate_character_report(
         target_character=character or "Marth",
         use_cache=use_cache,
         assume_target_main=assume_target_main,
+        use_store=use_store,
+        store_path=store_path,
     )
     if df.empty or character is None:
         return df

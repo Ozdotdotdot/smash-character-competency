@@ -11,8 +11,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Iterable, List, Optional
 
+from .datastore import SQLiteStore
 from .startgg_client import StartGGClient, TournamentFilter
 
 
@@ -65,14 +67,47 @@ PARTICIPANT_FIELDS = """
 """
 
 
-def fetch_recent_tournaments(client: StartGGClient, filt: Optional[TournamentFilter] = None) -> List[Dict]:
+def fetch_recent_tournaments(
+    client: StartGGClient,
+    filt: Optional[TournamentFilter] = None,
+    store: Optional[SQLiteStore] = None,
+) -> List[Dict]:
     """Return tournaments in scope for downstream processing."""
     filt = filt or TournamentFilter()
-    return list(client.iter_recent_tournaments(filt))
+    tournaments: List[Dict] = []
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30 * filt.months_back)
+    cutoff_ts = int(cutoff.timestamp())
+    if store is not None:
+        tournaments = store.load_tournaments(filt.state, filt.videogame_id, cutoff_ts)
+        coverage_missing = bool(tournaments) and min(
+            (t.get("startAt") or cutoff_ts) for t in tournaments
+        ) > cutoff_ts
+        if (
+            not tournaments
+            or store.discovery_is_stale(filt.state, filt.videogame_id)
+            or coverage_missing
+        ):
+            tournaments = list(client.iter_recent_tournaments(filt))
+            if tournaments:
+                store.upsert_tournaments(tournaments, filt.videogame_id)
+            store.record_discovery(filt.state, filt.videogame_id)
+    else:
+        tournaments = list(client.iter_recent_tournaments(filt))
+    # Filter again in case the DB contains tournaments older than requested window.
+    return [t for t in tournaments if (t.get("startAt") or 0) >= cutoff_ts]
 
 
-def fetch_tournament_events(client: StartGGClient, tournament_id: int) -> List[Dict]:
+def fetch_tournament_events(
+    client: StartGGClient,
+    tournament_id: int,
+    store: Optional[SQLiteStore] = None,
+) -> List[Dict]:
     """Fetch events for a tournament, including roster sizing metadata."""
+    if store is not None:
+        cached_events = store.load_events(tournament_id)
+        if cached_events:
+            return cached_events
+
     query = f"""
     query TournamentEvents($tournamentId: ID!) {{
       tournament(id: $tournamentId) {{
@@ -100,6 +135,8 @@ def fetch_tournament_events(client: StartGGClient, tournament_id: int) -> List[D
             "addrState": tournament.get("addrState"),
             "startAt": tournament.get("startAt"),
         }
+    if store is not None and events:
+        store.save_events(tournament_id, events)
     return events
 
 
@@ -300,9 +337,22 @@ class EventBundle:
     sets: List[Dict]
 
 
-def collect_event_bundle(client: StartGGClient, event: Dict) -> EventBundle:
+def collect_event_bundle(
+    client: StartGGClient,
+    event: Dict,
+    store: Optional[SQLiteStore] = None,
+) -> EventBundle:
     """Gather seeds, standings, and sets for the provided event."""
     event_id = int(event["id"])
+    if store is not None:
+        cached = store.load_event_bundle(event_id)
+        if cached is not None:
+            return EventBundle(
+                event=event,
+                seeds=cached["seeds"],
+                standings=cached["standings"],
+                sets=cached["sets"],
+            )
     seeds: List[Dict] = []
     # Combine seeds across phases (usually there's at least a pools & finals phase)
     for phase in event.get("phases", []) or []:
@@ -313,6 +363,8 @@ def collect_event_bundle(client: StartGGClient, event: Dict) -> EventBundle:
         seeds.extend(phase_seeds)
     standings = fetch_event_standings(client, event_id)
     sets = fetch_event_sets(client, event_id)
+    if store is not None:
+        store.save_event_bundle(event_id, seeds, standings, sets)
     return EventBundle(event=event, seeds=seeds, standings=standings, sets=sets)
 
 
@@ -549,6 +601,7 @@ def collect_player_results_for_tournaments(
     tournaments: List[Dict],
     singles_only: bool = True,
     target_videogame_id: Optional[int] = None,
+    store: Optional[SQLiteStore] = None,
 ) -> List[PlayerEventResult]:
     """Collect player event results across a list of tournaments."""
     records: List[PlayerEventResult] = []
@@ -556,7 +609,11 @@ def collect_player_results_for_tournaments(
         tournament_id = tournament.get("id")
         if tournament_id is None:
             continue
-        events = fetch_tournament_events(client, tournament_id=int(tournament_id))
+        events = fetch_tournament_events(
+            client,
+            tournament_id=int(tournament_id),
+            store=store,
+        )
         for event in events:
             if singles_only and not is_singles_event(event):
                 continue
@@ -565,6 +622,6 @@ def collect_player_results_for_tournaments(
                 event_game_id = event_game.get("id")
                 if str(event_game_id) != str(target_videogame_id):
                     continue
-            bundle = collect_event_bundle(client, event)
+            bundle = collect_event_bundle(client, event, store=store)
             records.extend(build_player_event_results(bundle))
     return records
