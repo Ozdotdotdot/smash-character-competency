@@ -111,6 +111,7 @@ def main() -> None:
             "state",
             "home_state",
             "home_state_inferred",
+            "home_country",
             "events_played",
             "sets_played",
             "avg_event_entrants",

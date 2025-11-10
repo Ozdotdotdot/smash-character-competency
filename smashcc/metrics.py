@@ -19,6 +19,11 @@ import pandas as pd
 
 from .smash_data import PlayerEventResult, SetRecord
 
+STATE_CONFIDENCE_THRESHOLD = 0.6
+STATE_MIN_EVENTS = 3
+COUNTRY_CONFIDENCE_THRESHOLD = 0.6
+COUNTRY_MIN_EVENTS = 2
+
 
 @dataclass
 class PlayerAggregate:
@@ -27,6 +32,7 @@ class PlayerAggregate:
     player_id: int
     gamer_tag: str
     state: Optional[str]
+    country: Optional[str]
     tournaments: set
     events_played: int = 0
     sets_played: int = 0
@@ -44,12 +50,14 @@ class PlayerAggregate:
     latest_event_start: int = 0
     event_sizes: List[int] = None
     event_state_counts: Dict[str, int] = None
+    event_country_counts: Dict[str, int] = None
 
     def __post_init__(self) -> None:
         self.seed_deltas = self.seed_deltas or []
         self.opponent_strength_values = self.opponent_strength_values or []
         self.event_sizes = self.event_sizes or []
         self.event_state_counts = self.event_state_counts or {}
+        self.event_country_counts = self.event_country_counts or {}
 
 
 def _event_weight(event: Dict, now_ts: int) -> float:
@@ -84,11 +92,23 @@ def _location_state(result: PlayerEventResult) -> Optional[str]:
     return location.get("state")
 
 
+def _location_country(result: PlayerEventResult) -> Optional[str]:
+    location = result.location or {}
+    return location.get("country") or location.get("countryCode")
+
+
 def _normalize_state(state: Optional[str]) -> Optional[str]:
     if not state:
         return None
     state = str(state).strip().upper()
     return state or None
+
+
+def _normalize_country(country: Optional[str]) -> Optional[str]:
+    if not country:
+        return None
+    country = str(country).strip().upper()
+    return country or None
 
 
 def compute_player_metrics(
@@ -107,6 +127,7 @@ def compute_player_metrics(
                 player_id=result.player_id,
                 gamer_tag=result.gamer_tag,
                 state=_location_state(result),
+                country=_location_country(result),
                 tournaments=set(),
             )
             aggregates[result.player_id] = agg
@@ -132,6 +153,12 @@ def compute_player_metrics(
             if not state_key:
                 state_key = "UNKNOWN"
             agg.event_state_counts[state_key] = agg.event_state_counts.get(state_key, 0) + 1
+        tournament_country = (result.tournament or {}).get("addrCountry")
+        if tournament_country:
+            country_key = _normalize_country(tournament_country)
+            if not country_key:
+                country_key = "UNKNOWN"
+            agg.event_country_counts[country_key] = agg.event_country_counts.get(country_key, 0) + 1
 
         for set_record in result.sets:
             if set_record.won is None:
@@ -184,14 +211,14 @@ def compute_player_metrics(
         total_state_events = sum(agg.event_state_counts.values())
         inferred_state = None
         inferred_state_confidence = None
-        if total_state_events:
+        if total_state_events >= STATE_MIN_EVENTS:
             top_state, top_count = max(
                 agg.event_state_counts.items(),
                 key=lambda item: item[1],
             )
             if top_state != "UNKNOWN":
                 confidence = top_count / total_state_events
-                if confidence > 0.5:
+                if confidence >= STATE_CONFIDENCE_THRESHOLD:
                     inferred_state = top_state
                     inferred_state_confidence = confidence
 
@@ -200,6 +227,27 @@ def compute_player_metrics(
         home_state_inferred = explicit_state is None and inferred_state is not None
         home_state_confidence = (
             inferred_state_confidence if home_state_inferred else 1.0 if explicit_state else None
+        )
+
+        total_country_events = sum(agg.event_country_counts.values())
+        inferred_country = None
+        inferred_country_confidence = None
+        if total_country_events >= COUNTRY_MIN_EVENTS:
+            top_country, top_country_count = max(
+                agg.event_country_counts.items(),
+                key=lambda item: item[1],
+            )
+            if top_country != "UNKNOWN":
+                country_confidence = top_country_count / total_country_events
+                if country_confidence >= COUNTRY_CONFIDENCE_THRESHOLD:
+                    inferred_country = top_country
+                    inferred_country_confidence = country_confidence
+
+        explicit_country = _normalize_country(agg.country)
+        home_country = explicit_country or inferred_country
+        home_country_inferred = explicit_country is None and inferred_country is not None
+        home_country_confidence = (
+            inferred_country_confidence if home_country_inferred else 1.0 if explicit_country else None
         )
 
         character_sets = agg.character_sets
@@ -260,6 +308,9 @@ def compute_player_metrics(
                 "home_state": home_state,
                 "home_state_inferred": home_state_inferred,
                 "home_state_confidence": home_state_confidence,
+                "home_country": home_country,
+                "home_country_inferred": home_country_inferred,
+                "home_country_confidence": home_country_confidence,
             }
         )
 

@@ -100,5 +100,6 @@ def test_compute_player_metrics_single_player():
     assert math.isclose(row["character_usage_rate"], 1.0)
     assert math.isclose(row["upset_rate"], 1.0)
     assert row["events_with_known_state"] == 1
-    assert row["inferred_state"] == "GA"
-    assert math.isclose(row["inferred_state_confidence"], 1.0)
+    assert row["home_state"] == "GA"
+    assert not row["home_state_inferred"]
+    assert row["inferred_state"] is None

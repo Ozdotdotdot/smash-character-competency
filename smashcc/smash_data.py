@@ -116,6 +116,7 @@ def fetch_tournament_events(
         name
         city
         addrState
+        countryCode
         startAt
         events {{
           {EVENT_FIELDS}
@@ -125,6 +126,8 @@ def fetch_tournament_events(
     """
     data = client.execute(query, {"tournamentId": tournament_id})
     tournament = data.get("tournament") or {}
+    if tournament and tournament.get("addrCountry") is None:
+        tournament["addrCountry"] = tournament.get("countryCode")
     events = tournament.get("events") or []
     for event in events:
         event["_tournament"] = {
@@ -133,6 +136,7 @@ def fetch_tournament_events(
             "name": tournament.get("name"),
             "city": tournament.get("city"),
             "addrState": tournament.get("addrState"),
+            "addrCountry": tournament.get("addrCountry"),
             "startAt": tournament.get("startAt"),
         }
     if store is not None and events:

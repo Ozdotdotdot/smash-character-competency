@@ -51,6 +51,7 @@ class SQLiteStore:
                 name TEXT,
                 city TEXT,
                 state TEXT,
+                country TEXT,
                 start_at INTEGER,
                 end_at INTEGER,
                 num_attendees INTEGER,
@@ -95,6 +96,16 @@ class SQLiteStore:
             """
         )
         self.conn.commit()
+        # Ensure new columns exist for older databases.
+        self._ensure_column("tournaments", "country", "TEXT")
+
+    def _ensure_column(self, table: str, column: str, definition: str) -> None:
+        """Add a column to an existing table if it is missing."""
+        info = self.conn.execute(f"PRAGMA table_info({table})").fetchall()
+        if any(row["name"] == column for row in info):
+            return
+        self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        self.conn.commit()
 
     # --------------------------------------------------------------------- #
     # Discovery metadata
@@ -136,15 +147,16 @@ class SQLiteStore:
                 self.conn.execute(
                     """
                     INSERT INTO tournaments(
-                        id, slug, name, city, state, start_at, end_at,
+                        id, slug, name, city, state, country, start_at, end_at,
                         num_attendees, videogame_id, last_synced
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                         slug = excluded.slug,
                         name = excluded.name,
                         city = excluded.city,
                         state = excluded.state,
+                        country = excluded.country,
                         start_at = excluded.start_at,
                         end_at = excluded.end_at,
                         num_attendees = excluded.num_attendees,
@@ -157,6 +169,7 @@ class SQLiteStore:
                         tourney.get("name"),
                         tourney.get("city"),
                         (tourney.get("addrState") or tourney.get("state", "")),
+                        tourney.get("addrCountry"),
                         tourney.get("startAt"),
                         tourney.get("endAt"),
                         tourney.get("numAttendees"),
@@ -190,6 +203,7 @@ class SQLiteStore:
                 "name": row["name"],
                 "city": row["city"],
                 "addrState": row["state"],
+                "addrCountry": row["country"],
                 "startAt": row["start_at"],
                 "endAt": row["end_at"],
                 "numAttendees": row["num_attendees"],

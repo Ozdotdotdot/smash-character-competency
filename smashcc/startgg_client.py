@@ -163,6 +163,7 @@ class StartGGClient:
               name
               city
               addrState
+              countryCode
               startAt
               endAt
               numAttendees
@@ -187,6 +188,8 @@ class StartGGClient:
 
             seen_newer = False
             for node in nodes:
+                if node.get("addrCountry") is None:
+                    node["addrCountry"] = node.get("countryCode")
                 start_at = node.get("startAt") or 0
                 if start_at >= cutoff_unix:
                     seen_newer = True
