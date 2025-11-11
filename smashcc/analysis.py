@@ -20,7 +20,7 @@ def generate_player_metrics(
     months_back: int = 6,
     videogame_id: int = 1386,
     target_character: str = "Marth",
-    use_cache: bool = True,
+    use_cache: bool = False,
     assume_target_main: bool = False,
     use_store: bool = True,
     store_path: Optional[Path] = None,
@@ -39,12 +39,14 @@ def generate_player_metrics(
     target_character:
         Character name to derive character-specific metrics (default "Marth").
     use_cache:
-        Whether to persist GraphQL responses locally to avoid redundant calls.
+        Whether to persist raw GraphQL responses as JSON. When `use_store` is True
+        this setting is ignored (we rely on the SQLite database instead).
     use_store:
         When True, persist tournaments/events inside a SQLite database so follow-up
         runs can be served offline. Disable for ephemeral environments.
     """
-    client = StartGGClient(use_cache=use_cache)
+    client_use_cache = use_cache and not use_store
+    client = StartGGClient(use_cache=client_use_cache)
     store: Optional[SQLiteStore] = SQLiteStore(store_path) if use_store else None
     filt = TournamentFilter(
         state=state,
@@ -74,7 +76,7 @@ def generate_character_report(
     character: Optional[str] = "Marth",
     months_back: int = 6,
     videogame_id: int = 1386,
-    use_cache: bool = True,
+    use_cache: bool = False,
     assume_target_main: bool = False,
     use_store: bool = True,
     store_path: Optional[Path] = None,
