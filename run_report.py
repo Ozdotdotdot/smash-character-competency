@@ -55,6 +55,25 @@ def main() -> None:
         help="Keep players whose average event entrant count is at most this value.",
     )
     parser.add_argument(
+        "--min-max-event-entrants",
+        type=int,
+        help="Keep players whose largest event had at least this many entrants.",
+    )
+    parser.add_argument(
+        "--large-event-threshold",
+        type=int,
+        default=32,
+        help="Entrant count that defines a 'large' event for share filters (default: 32).",
+    )
+    parser.add_argument(
+        "--min-large-event-share",
+        type=float,
+        help=(
+            "Keep players whose share of events meeting the large-event threshold is at least this value "
+            "(0.0-1.0). For example, 0.33 means one third of their events were at least that size."
+        ),
+    )
+    parser.add_argument(
         "--start-after",
         help="Keep players whose latest event started on or after this date (YYYY-MM-DD).",
     )
@@ -71,6 +90,7 @@ def main() -> None:
             videogame_id=args.videogame_id,
             target_character=args.character,
             assume_target_main=args.assume_target_main,
+            large_event_threshold=args.large_event_threshold,
         )
         if df.empty:
             print("No players found in the requested window.")
@@ -87,6 +107,13 @@ def main() -> None:
 
         if args.max_entrants is not None and "avg_event_entrants" in df.columns:
             df = df[df["avg_event_entrants"].fillna(0) <= args.max_entrants]
+        if args.min_max_event_entrants is not None and "max_event_entrants" in df.columns:
+            df = df[df["max_event_entrants"].fillna(0) >= args.min_max_event_entrants]
+        if (
+            args.min_large_event_share is not None
+            and "large_event_share" in df.columns
+        ):
+            df = df[df["large_event_share"].fillna(0) >= args.min_large_event_share]
 
         if args.start_after:
             try:
@@ -115,6 +142,8 @@ def main() -> None:
             "events_played",
             "sets_played",
             "avg_event_entrants",
+            "max_event_entrants",
+            "large_event_share",
             "win_rate",
             "weighted_win_rate",
             "avg_seed_delta",

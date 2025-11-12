@@ -24,6 +24,7 @@ def generate_player_metrics(
     assume_target_main: bool = False,
     use_store: bool = True,
     store_path: Optional[Path] = None,
+    large_event_threshold: int = 32,
 ) -> pd.DataFrame:
     """
     Run the full data pipeline and return a DataFrame with per-player metrics.
@@ -44,6 +45,8 @@ def generate_player_metrics(
     use_store:
         When True, persist tournaments/events inside a SQLite database so follow-up
         runs can be served offline. Disable for ephemeral environments.
+    large_event_threshold:
+        Entrant count used to flag “large” events when computing large_event_share.
     """
     client_use_cache = use_cache and not use_store
     client = StartGGClient(use_cache=client_use_cache)
@@ -68,6 +71,7 @@ def generate_player_metrics(
         player_results,
         target_character=target_character,
         assume_target_main=assume_target_main,
+        large_event_threshold=large_event_threshold,
     )
 
 
@@ -80,6 +84,7 @@ def generate_character_report(
     assume_target_main: bool = False,
     use_store: bool = True,
     store_path: Optional[Path] = None,
+    large_event_threshold: int = 32,
 ) -> pd.DataFrame:
     """
     Backwards-compatible wrapper that filters the metrics DataFrame to players
@@ -94,6 +99,7 @@ def generate_character_report(
         assume_target_main=assume_target_main,
         use_store=use_store,
         store_path=store_path,
+        large_event_threshold=large_event_threshold,
     )
     if df.empty or character is None:
         return df

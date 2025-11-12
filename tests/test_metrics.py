@@ -95,6 +95,9 @@ def test_compute_player_metrics_single_player():
     assert row["sets_played"] == 2
     assert row["avg_event_entrants"] == 32
     assert row["max_event_entrants"] == 32
+    assert row["events_with_known_entrants"] == 1
+    assert row["large_event_threshold"] == 32
+    assert row["large_event_share"] == 1.0
     assert row["character_sets"] == 2
     assert math.isclose(row["character_win_rate"], 0.5)
     assert math.isclose(row["character_usage_rate"], 1.0)

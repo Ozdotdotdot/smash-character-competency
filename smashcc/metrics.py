@@ -115,8 +115,23 @@ def compute_player_metrics(
     player_results: Iterable[PlayerEventResult],
     target_character: str = "Marth",
     assume_target_main: bool = False,
+    large_event_threshold: int = 32,
 ) -> pd.DataFrame:
-    """Aggregate metrics for plotting from raw player event results."""
+    """
+    Aggregate metrics for plotting from raw player event results.
+
+    Parameters
+    ----------
+    player_results:
+        Iterable of event-level records.
+    target_character:
+        Character name for character-specific splits.
+    assume_target_main:
+        When True, fallback to overall stats if a player logged zero sets with
+        the target character.
+    large_event_threshold:
+        Entrant count that defines a "large" event for share calculations.
+    """
     aggregates: Dict[int, PlayerAggregate] = {}
     now_ts = int(datetime.now(timezone.utc).timestamp())
 
@@ -190,6 +205,7 @@ def compute_player_metrics(
                 agg.character_weight_sum += event_weight
 
     rows: List[Dict] = []
+    large_event_threshold = max(1, int(large_event_threshold))
     for agg in aggregates.values():
         if agg.sets_played == 0:
             continue
@@ -204,10 +220,20 @@ def compute_player_metrics(
             if agg.opponent_strength_values
             else None
         )
-        avg_event_entrants = (
-            mean(agg.event_sizes) if agg.event_sizes else None
+        known_event_sizes = [size for size in agg.event_sizes if size is not None]
+        avg_event_entrants = mean(known_event_sizes) if known_event_sizes else None
+        max_event_entrants = max(known_event_sizes) if known_event_sizes else None
+        events_with_known_entrants = len(known_event_sizes)
+        large_event_count = (
+            sum(1 for size in known_event_sizes if size >= large_event_threshold)
+            if known_event_sizes
+            else 0
         )
-        max_event_entrants = max(agg.event_sizes) if agg.event_sizes else None
+        large_event_share = (
+            large_event_count / events_with_known_entrants
+            if events_with_known_entrants
+            else None
+        )
         total_state_events = sum(agg.event_state_counts.values())
         inferred_state = None
         inferred_state_confidence = None
@@ -302,6 +328,9 @@ def compute_player_metrics(
                 "latest_event_start": agg.latest_event_start,
                 "avg_event_entrants": avg_event_entrants,
                 "max_event_entrants": max_event_entrants,
+                "events_with_known_entrants": events_with_known_entrants,
+                "large_event_threshold": large_event_threshold,
+                "large_event_share": large_event_share,
                 "events_with_known_state": total_state_events,
                 "inferred_state": inferred_state,
                 "inferred_state_confidence": inferred_state_confidence,

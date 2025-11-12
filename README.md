@@ -49,8 +49,8 @@ This command prints a table of the weighted metrics for Georgia Ultimate players
 ### Example output
 
 ```
- gamer_tag state home_state home_state_inferred events_played sets_played avg_event_entrants win_rate weighted_win_rate avg_seed_delta opponent_strength character_usage_rate
-     Teaser    GA        GA               False            12          58               87    0.66             0.71        -1.8              0.14                 0.32
+ gamer_tag state home_state home_state_inferred home_country events_played sets_played avg_event_entrants max_event_entrants large_event_share win_rate weighted_win_rate avg_seed_delta opponent_strength character_usage_rate
+     Teaser    GA        GA               False          US            12          58               87               152             0.58    0.66             0.71        -1.8              0.14                 0.32
 ```
 
 Note: values vary depending on the tournaments in scope.
@@ -66,15 +66,20 @@ Note: values vary depending on the tournaments in scope.
 - `--assume-target-main`: When a player has zero logged sets for the character, treat the target character as their main (assigns win rates from overall performance).
 - `--filter-state`: Include only players whose home state (explicit or inferred) matches one of the provided codes. Repeat the flag to allow multiple states.
 - `--min-entrants` / `--max-entrants`: Restrict players based on the average size of their events.
+- `--min-max-event-entrants`: Keep players whose single largest event cleared the provided entrant count (useful when you only want competitors who have experienced majors).
+- `--large-event-threshold`: Define what “large” means for the share filter (default `32` entrants).
+- `--min-large-event-share`: Require at least this fraction of a player’s events to meet the large-event threshold (e.g., `0.33` means one third of their brackets were that size). This is handy when you want consistent midsize/major activity while still allowing grassroots locals.
 - `--start-after`: Drop players whose most recent event started before a specific date (`YYYY-MM-DD`).
 - `--output`: Write the full metrics DataFrame to CSV instead of printing a subset of columns.
+
+Use the average entrant filters when you care about overall bracket size, `--min-max-event-entrants` when you only want players who have touched events of a certain scale, and the large-event share combo when you need a middle ground (“they regularly play 64+ entrant brackets, but we still respect their 20-person locals”).
 
 I may move this section to its own documentation if I add more functionality.
 
 ## Working with the metrics elsewhere
 
 - Import `generate_player_metrics` or `generate_character_report` directly to consume DataFrames in notebooks or other scripts.
-- Visualizations now ship with a Voilà-ready dashboard under `Visualizer.ipynb`. Launch it with `voila Visualizer.ipynb --port 8866` to expose controls for game/state/month filters, the same min/max entrants + start-after gates as the CLI, axis dropdowns (swap between weighted win rate, opponent strength, seed delta, upset rate, etc.), and a fetch button with an inline spinner while start.gg calls run. The notebook talks straight to the `smashcc` pipeline, so code changes propagate immediately.
+- Visualizations now ship with a Voilà-ready dashboard under `Visualizer.ipynb`. Launch it with `voila Visualizer.ipynb --port 8866` to expose controls for game/state/month filters, entrant thresholds (average, max-event, large-event share), adjustable “large” definitions, plus axis dropdowns (swap between weighted win rate, opponent strength, seed delta, upset rate, etc.). Click **Fetch metrics** to refresh the underlying DataFrame and the scatter plot/table update instantly.
 - The first run hydrates a SQLite database at `.cache/startgg/smash.db` that stores tournaments, events, and per-event payloads. Follow-up runs read straight from the database (and only re-sync from start.gg once a week or when the date window expands), so you can explore older tournaments offline. Delete the file if you ever want to rebuild it from scratch, or pass `use_store=False` to `generate_player_metrics` for ephemeral environments.
 - Raw GraphQL responses are no longer cached as JSON when the SQLite store is enabled. If you need the old behavior (e.g., for debugging schema changes), pass `use_store=False` or `use_cache=True` explicitly to `generate_player_metrics` to re-enable the hashed `.cache/startgg/*.json` snapshots (those still auto-refresh every seven days and archive the previous payload).
 - Location attribution got more robust: we now infer a `home_state` only when at least three events with known states exist and one state accounts for ≥60% of them. Tournaments also record `addrCountry`, so we expose `home_country`/confidence columns alongside the state fields. Use these when filtering travelers vs. locals or when exploring regions outside the US.
