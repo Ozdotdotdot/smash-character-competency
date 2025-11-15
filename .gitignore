@@ -1,3 +1,9 @@
 .cache/
 .~lock.*
 .stfolder
+.venv/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+cheerio_*.csv
