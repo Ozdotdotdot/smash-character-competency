@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any, Dict, List
 
 from fastapi import FastAPI, HTTPException, Query
@@ -14,6 +15,14 @@ app = FastAPI(
     description="Lightweight API exposing player metrics derived from start.gg data.",
     version="0.1.0",
 )
+
+DEFAULT_STORE_PATH = Path(".cache") / "startgg" / "smash.db"
+
+
+def _get_store_path() -> Path:
+    """Resolve the SQLite path, allowing overrides via SMASHCC_DB_PATH."""
+    override = os.environ.get("SMASHCC_DB_PATH")
+    return Path(override).expanduser() if override else DEFAULT_STORE_PATH
 
 
 @app.get("/health")
@@ -61,6 +70,7 @@ def search(
             videogame_id=videogame_id,
             target_character=character,
             assume_target_main=assume_target_main,
+            store_path=_get_store_path(),
         )
     except Exception as exc:  # pragma: no cover - protective circuit
         raise HTTPException(status_code=502, detail=str(exc)) from exc
